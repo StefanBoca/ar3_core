@@ -1,14 +1,12 @@
 #include "ar3_hardware_drivers/TeensyDriver.h"
 
-#include <thread>
 #include <chrono>
+#include <thread>
 
 #define FW_VERSION "0.0.1"
 
 namespace ar3_hardware_drivers {
-
-void TeensyDriver::init(std::string port, int baudrate, int num_joints, std::vector<double>& enc_steps_per_deg)
-{
+void TeensyDriver::init(std::string port, int baudrate, int num_joints, std::vector<double>& enc_steps_per_deg) {
     // @TODO read version from config
     version_ = FW_VERSION;
 
@@ -16,28 +14,26 @@ void TeensyDriver::init(std::string port, int baudrate, int num_joints, std::vec
     boost::system::error_code ec;
     serial_port_.open(port, ec);
 
-    if (ec)
-    {
-        ROS_WARN("Failed to connect to serial port %s", port.c_str());
+    if (ec) {
+        RCLCPP_WARN(rclcpp::get_logger("ar3_hardware_drivers"), "Failed to connect to serial port %s", port.c_str());
         return;
-    }
-    else
-    {
+    } else {
         serial_port_.set_option(boost::asio::serial_port_base::baud_rate(static_cast<uint32_t>(baudrate)));
         serial_port_.set_option(boost::asio::serial_port_base::parity(boost::asio::serial_port_base::parity::none));
-        ROS_INFO("Successfully connected to serial port %s", port.c_str());
+        RCLCPP_INFO(
+            rclcpp::get_logger("ar3_hardware_drivers"), "Successfully connected to serial port %s", port.c_str());
     }
-    
+
     initialised_ = false;
     std::string msg = "STA" + version_ + "\n";
 
-    while (!initialised_)
-    {
-        ROS_INFO("Waiting for response from Teensy on port %s", port.c_str());
+    while (!initialised_) {
+        RCLCPP_INFO(
+            rclcpp::get_logger("ar3_hardware_drivers"), "Waiting for response from Teensy on port %s", port.c_str());
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
         exchange(msg);
     }
-    ROS_INFO("Successfully initialised driver on port %s", port.c_str());
+    RCLCPP_INFO(rclcpp::get_logger("ar3_hardware_drivers"), "Successfully initialised driver on port %s", port.c_str());
 
     // initialise joint and encoder calibration
     num_joints_ = num_joints;
@@ -45,30 +41,19 @@ void TeensyDriver::init(std::string port, int baudrate, int num_joints, std::vec
     enc_steps_.resize(num_joints_);
     enc_steps_per_deg_.resize(num_joints_);
     enc_calibrations_.resize(num_joints_);
-    for (int i = 0; i < num_joints_; ++i)
-    {
-        enc_steps_per_deg_[i] = enc_steps_per_deg[i];
-    }
+    for (int i = 0; i < num_joints_; ++i) { enc_steps_per_deg_[i] = enc_steps_per_deg[i]; }
 
     // get current joint positions
     msg = "JP\n";
     exchange(msg);
-    for (int i = 0; i < num_joints_; ++i)
-    {
-        enc_commands_[i] = enc_steps_[i];
-    }
+    for (int i = 0; i < num_joints_; ++i) { enc_commands_[i] = enc_steps_[i]; }
 }
 
-TeensyDriver::TeensyDriver()
-: serial_port_(io_service_)
-{
-}
+TeensyDriver::TeensyDriver() : serial_port_(io_service_) {}
 
-void TeensyDriver::setStepperSpeed(std::vector<double>& max_speed, std::vector<double>& max_accel)
-{
+void TeensyDriver::setStepperSpeed(std::vector<double>& max_speed, std::vector<double>& max_accel) {
     std::string outMsg = "SS";
-    for (int i = 0, charIdx = 0; i < num_joints_; ++i, charIdx += 2)
-    {
+    for (int i = 0, charIdx = 0; i < num_joints_; ++i, charIdx += 2) {
         outMsg += 'A' + charIdx;
         outMsg += std::to_string(max_speed[i]);
         outMsg += 'A' + charIdx + 1;
@@ -79,15 +64,13 @@ void TeensyDriver::setStepperSpeed(std::vector<double>& max_speed, std::vector<d
 }
 
 // Update between hardware interface and hardware driver
-void TeensyDriver::update(std::vector<double>& pos_commands, std::vector<double>& joint_positions)
-{
+void TeensyDriver::update(std::vector<double>& pos_commands, std::vector<double>& joint_positions) {
     // get updated position commands
     jointPosToEncSteps(pos_commands, enc_commands_);
 
     // construct update message
     std::string outMsg = "MT";
-    for (int i = 0; i < num_joints_; ++i)
-    {
+    for (int i = 0; i < num_joints_; ++i) {
         outMsg += 'A' + i;
         outMsg += std::to_string(enc_commands_[i]);
     }
@@ -97,17 +80,15 @@ void TeensyDriver::update(std::vector<double>& pos_commands, std::vector<double>
     exchange(outMsg);
 
     // return updated joint_positions
-    encStepsToJointPos(enc_steps_ , joint_positions);
+    encStepsToJointPos(enc_steps_, joint_positions);
 }
 
-void TeensyDriver::calibrateJoints()
-{
+void TeensyDriver::calibrateJoints() {
     std::string outMsg = "JC\n";
     sendCommand(outMsg);
 }
 
-void TeensyDriver::getJointPositions(std::vector<double>& joint_positions)
-{
+void TeensyDriver::getJointPositions(std::vector<double>& joint_positions) {
     // get current joint positions
     std::string msg = "JP\n";
     exchange(msg);
@@ -115,109 +96,81 @@ void TeensyDriver::getJointPositions(std::vector<double>& joint_positions)
 }
 
 // Send specific commands
-void TeensyDriver::sendCommand(std::string outMsg)
-{
-    exchange(outMsg);
-}
+void TeensyDriver::sendCommand(std::string outMsg) { exchange(outMsg); }
 
 // Send msg to board and collect data
-void TeensyDriver::exchange(std::string outMsg)
-{
+void TeensyDriver::exchange(std::string outMsg) {
     std::string inMsg;
     std::string errTransmit = "";
     std::string errReceive = "";
-    
-    if (!transmit(outMsg, errTransmit))
-    {
+
+    if (!transmit(outMsg, errTransmit)) {
         // print err
     }
 
-    if (!receive(inMsg, errReceive))
-    {
+    if (!receive(inMsg, errReceive)) {
         // print err
     }
     // parse msg
     std::string header = inMsg.substr(0, 2);
-    if (header == "ST")
-    {
+    if (header == "ST") {
         // init acknowledgement
-        checkInit(inMsg);   
-    }
-    else if (header == "JC")
-    {
+        checkInit(inMsg);
+    } else if (header == "JC") {
         // encoder calibration values
         updateEncoderCalibrations(inMsg);
-    }
-    else if (header == "JP")
-    {
+    } else if (header == "JP") {
         // encoder steps
         updateEncoderSteps(inMsg);
-    }
-    else
-    {
+    } else {
         // unknown header
-        ROS_WARN("Unknown header %s", header);
-    } 
+        RCLCPP_WARN(rclcpp::get_logger("ar3_hardware_drivers"), "Unknown header %s", header);
+    }
 }
 
-bool TeensyDriver::transmit(std::string msg, std::string& err)
-{
+bool TeensyDriver::transmit(std::string msg, std::string& err) {
     boost::system::error_code ec;
     const auto sendBuffer = boost::asio::buffer(msg.c_str(), msg.size());
 
     boost::asio::write(serial_port_, sendBuffer, ec);
 
-    if(!ec)
-    {
+    if (!ec) {
         return true;
-    }
-    else
-    {
+    } else {
         err = "Error in transmit";
         return false;
-    }    
+    }
 }
 
-bool TeensyDriver::receive(std::string& inMsg, std::string& err)
-{
+bool TeensyDriver::receive(std::string& inMsg, std::string& err) {
     char c;
     std::string msg = "";
     bool eol = false;
-    while (!eol)
-    {
+    while (!eol) {
         boost::asio::read(serial_port_, boost::asio::buffer(&c, 1));
-        switch(c)
-        {
-            case '\r':
-                break;
-            case '\n':
-                eol = true;
-            default:
-                msg += c;
+        switch (c) {
+            case '\r': break;
+            case '\n': eol = true;
+            default: msg += c;
         }
     }
     inMsg = msg;
     return true;
 }
 
-void TeensyDriver::checkInit(std::string msg)
-{
+void TeensyDriver::checkInit(std::string msg) {
     std::size_t ack_idx = msg.find("A", 2) + 1;
     std::size_t version_idx = msg.find("B", 2) + 1;
     int ack = std::stoi(msg.substr(ack_idx, version_idx));
-    if (ack)
-    {
+    if (ack) {
         initialised_ = true;
-    }
-    else
-    {
+    } else {
         std::string version = msg.substr(version_idx);
-        ROS_ERROR("Firmware version mismatch %s", version);
-    }  
+        RCLCPP_ERROR(rclcpp::get_logger("ar3_hardware_drivers"), "Firmware version mismatch %s", version);
+    }
 }
 
-void TeensyDriver::updateEncoderCalibrations(std::string msg)
-{
+void TeensyDriver::updateEncoderCalibrations(std::string msg) {
     size_t idx1 = msg.find("A", 2) + 1;
     size_t idx2 = msg.find("B", 2) + 1;
     size_t idx3 = msg.find("C", 2) + 1;
@@ -232,11 +185,10 @@ void TeensyDriver::updateEncoderCalibrations(std::string msg)
     enc_calibrations_[5] = std::stoi(msg.substr(idx6));
 
     // @TODO update config file
-    ROS_INFO("Successfully updated encoder calibrations");
+    RCLCPP_INFO(rclcpp::get_logger("ar3_hardware_drivers"), "Successfully updated encoder calibrations");
 }
 
-void TeensyDriver::updateEncoderSteps(std::string msg)
-{
+void TeensyDriver::updateEncoderSteps(std::string msg) {
     size_t idx1 = msg.find("A", 2) + 1;
     size_t idx2 = msg.find("B", 2) + 1;
     size_t idx3 = msg.find("C", 2) + 1;
@@ -251,19 +203,15 @@ void TeensyDriver::updateEncoderSteps(std::string msg)
     enc_steps_[5] = std::stoi(msg.substr(idx6));
 }
 
-void TeensyDriver::encStepsToJointPos(std::vector<int>& enc_steps, std::vector<double>& joint_positions)
-{
-    for (int i = 0; i < enc_steps.size(); ++i)
-    {
+void TeensyDriver::encStepsToJointPos(std::vector<int>& enc_steps, std::vector<double>& joint_positions) {
+    for (int i = 0; i < enc_steps.size(); ++i) {
         // convert enc steps to joint deg
         joint_positions[i] = static_cast<double>(enc_steps[i]) / enc_steps_per_deg_[i];
     }
 }
 
-void TeensyDriver::jointPosToEncSteps(std::vector<double>& joint_positions, std::vector<int>& enc_steps)
-{
-    for (int i = 0; i < joint_positions.size(); ++i)
-    {
+void TeensyDriver::jointPosToEncSteps(std::vector<double>& joint_positions, std::vector<int>& enc_steps) {
+    for (int i = 0; i < joint_positions.size(); ++i) {
         // convert joint deg to enc steps
         enc_steps[i] = static_cast<int>(joint_positions[i] * enc_steps_per_deg_[i]);
     }

@@ -1,18 +1,18 @@
 #ifndef TEENSY_DRIVER_H
 #define TEENSY_DRIVER_H
 
-#include <vector>
-#include <unordered_map>
-#include <string>
 #include "math.h"
+#include "rclcpp/rclcpp.hpp"
 #include "time.h"
-#include <ros/ros.h>
+
 #include <boost/asio.hpp>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 namespace ar3_hardware_drivers {
-
 class TeensyDriver {
-  public:
+public:
     void init(std::string port, int baudrate, int num_joints, std::vector<double>& enc_steps_per_deg);
     void setStepperSpeed(std::vector<double>& max_speed, std::vector<double>& max_accel);
     void update(std::vector<double>& pos_commands, std::vector<double>& joint_states);
@@ -21,7 +21,7 @@ class TeensyDriver {
 
     TeensyDriver();
 
-  private:
+private:
     bool initialised_;
     std::string version_;
     boost::asio::io_service io_service_;
@@ -32,11 +32,10 @@ class TeensyDriver {
     std::vector<double> enc_steps_per_deg_;
     std::vector<int> enc_calibrations_;
 
-
     // Comms with teensy
     void exchange(std::string outMsg); // exchange joint commands/state
     bool transmit(std::string outMsg, std::string& err);
-    bool receive(std::string &inMsg, std::string& err);
+    bool receive(std::string& inMsg, std::string& err);
     void sendCommand(std::string outMsg); // send arbitrary commands
 
     void checkInit(std::string msg);
